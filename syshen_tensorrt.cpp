@@ -21,44 +21,49 @@ struct buffer_ {
 static Logger gLogger;
 
 struct syshenRTCaffeCantainer_ {
-	int batch_size;
-	int dlaCore;
+	//int batch_size;
+	//int dlaCore;
 	buffer buffers;
-	nvinfer1::IBuilder * builder;
-	nvinfer1::INetworkDefinition *network;
-	nvcaffeparser1::ICaffeParser *parser;
+	//nvinfer1::INetworkDefinition *network;	
 	nvinfer1::ICudaEngine * m_Engine;
 	IExecutionContext* context;
 	cudaStream_t stream;
 };
 
-static int processImg(cv::Mat &img, int inputchannels, float *imgData) {
-	cv::Mat float_img;
-	img.convertTo(float_img, CV_32F);
-	std::vector<cv::Mat> splitchannles = std::vector<cv::Mat>(inputchannels);
-	if (3 == inputchannels) {
-		if (1 == img.channels())
-			cv::cvtColor(img, img, cv::COLOR_GRAY2BGR);
-		cv::Scalar_<float> meanValue = cv::Scalar_<float>(104.0f, 117.0f, 123.0f);
-		cv::Mat mean_(img.size(), CV_32FC3, meanValue);
-		cv::subtract(float_img, mean_, float_img);
-		cv::split(float_img, splitchannles);
-	}
-	else if (1 == inputchannels) {
-		if (3 == img.channels())
-			cv::cvtColor(img, img, cv::COLOR_BGR2GRAY);
-		cv::Scalar_<float> meanValue = cv::Scalar_<float>(104.0f, 0.0f, 0.0f);
-		cv::Mat mean_(img.size(), CV_32FC1, meanValue);
-		cv::subtract(float_img, mean_, float_img);
-		splitchannles.emplace_back(float_img);
-	}
-	else {
-		printf("error inputchannels!!\r\n");
-		exit(-1);
-	}
-	int shift_data = sizeof(float) * img.rows * img.cols;
-	for (size_t i = 0; i < inputchannels; i++) {
-		memcpy(imgData + i * shift_data, splitchannles[i].data, shift_data);
+static int processImg(std::vector<cv::Mat> &imgs, int inputchannels, float *imgData) {
+	int shift_data = 0;
+	for (size_t index = 0; index < imgs.size(); index++) {
+		cv::Mat float_img;
+		cv::Mat img = imgs[index];
+
+		std::vector<cv::Mat> splitchannles = std::vector<cv::Mat>(inputchannels);
+		if (3 == inputchannels) {
+			if (1 == img.channels())
+				cv::cvtColor(img, img, cv::COLOR_GRAY2BGR);
+			img.convertTo(float_img, CV_32F);
+			cv::Scalar_<float> meanValue = cv::Scalar_<float>(104.0f, 117.0f, 123.0f);
+			cv::Mat mean_(img.size(), CV_32FC3, meanValue);
+			cv::subtract(float_img, mean_, float_img);
+			cv::split(float_img, splitchannles);
+		}
+		else if (1 == inputchannels) {
+			if (3 == img.channels())
+				cv::cvtColor(img, img, cv::COLOR_BGR2GRAY);
+			img.convertTo(float_img, CV_32F);
+			cv::Scalar_<float> meanValue = cv::Scalar_<float>(104.0f, 0.0f, 0.0f);
+			cv::Mat mean_(img.size(), CV_32FC1, meanValue);
+			cv::subtract(float_img, mean_, float_img);
+			splitchannles.emplace_back(float_img);
+		}
+		else {
+			printf("error inputchannels!!\r\n");
+			exit(-1);
+		}
+		shift_data = sizeof(float) * img.rows * img.cols;
+		for (size_t i = 0; i < inputchannels; i++) {
+			memcpy(imgData, splitchannles[i].data, shift_data);
+			imgData += img.rows * img.cols;
+		}
 	}
 
 	return 0;
@@ -83,6 +88,13 @@ inline unsigned int getElementSize(nvinfer1::DataType t)
 	return 0;
 }
 
+//static int paserCaffeModel() {
+//
+//
+//
+//	return 0;
+//}
+
 int syshen_TesnroRTBuild(frcHandle *handle_t, buildparam *param) {
 
 	syshenRTCaffeCantainer *cantainer = (syshenRTCaffeCantainer *)malloc(sizeof(syshenRTCaffeCantainer));
@@ -91,7 +103,7 @@ int syshen_TesnroRTBuild(frcHandle *handle_t, buildparam *param) {
 	nvcaffeparser1::ICaffeParser *parser = nvcaffeparser1::createCaffeParser();
 
 	int max_batch_size = builder->getMaxBatchSize();
-	cantainer->batch_size = param->batch_size > max_batch_size ? max_batch_size : param->batch_size;
+	//param->batch_size = param->batch_size > max_batch_size ? max_batch_size : param->batch_size;
 
 	const nvcaffeparser1::IBlobNameToTensor* blobNameToTensor = parser->parse(
 		param->protostr.c_str(),
@@ -100,41 +112,49 @@ int syshen_TesnroRTBuild(frcHandle *handle_t, buildparam *param) {
 		//nvinfer1::DataType::kHALF);
 		nvinfer1::DataType::kFLOAT);
 
-	for (auto& s : param->outputTensorNames)
-		network->markOutput(*blobNameToTensor->find(s.c_str()));
+	/*for (auto& s : param->outputTensorNames)
+		network->markOutput(*blobNameToTensor->find(s.c_str()));*/
 
-	builder->setMaxBatchSize(cantainer->batch_size);
+	builder->setMaxBatchSize(param->batch_size);
+	//max_batch_size = builder->getMaxBatchSize();
 	builder->setMaxWorkspaceSize(16_KB);
 	//std::cout << builder->getNbDLACores() << std::endl;
-	cantainer->dlaCore = builder->getNbDLACores() > param->dlaCoreSize ? param->dlaCoreSize : builder->getNbDLACores();
-	//builder->allowGPUFallback(true);
-	//builder->setFp16Mode(false);
-	//builder->setDefaultDeviceType(DeviceType::kDLA);
-	//builder->setDefaultDeviceType(DeviceType::kGPU);
-	//builder->setDLACore(cantainer->dlaCore);
+	//cantainer->dlaCore = builder->getNbDLACores() > param->dlaCoreSize ? param->dlaCoreSize : builder->getNbDLACores();
+	if (param->dlaCoreSize >= 0) {
+		builder->allowGPUFallback(true);
+		builder->setFp16Mode(true);
+		builder->setDefaultDeviceType(DeviceType::kDLA);
+		//builder->setDefaultDeviceType(DeviceType::kGPU);
+		builder->setDLACore(param->dlaCoreSize);
+	}
 
 	nvinfer1::ICudaEngine * m_Engine = builder->buildCudaEngine(*network);
 
 	int inputIndex = m_Engine->getBindingIndex(param->inputTensorNames[0].c_str());
-	int input_size = 0;
-	getNetworkDataSize(m_Engine, inputIndex, &input_size);
+	int input_size = param->batch_size * param->channels * param->height *param->width;
+	//getNetworkDataSize(m_Engine, inputIndex, &input_size);
 	void *input_data = NULL, *output_data = NULL;
 	int outputIndex = 0;
-	m_Engine->getBindingIndex(param->outputTensorNames[0].c_str());
+	//m_Engine->getBindingIndex(param->outputTensorNames[0].c_str());
 	int output_size = 0;
 	getNetworkDataSize(m_Engine, outputIndex, &output_size);
 	cantainer->buffers.buffer_size = m_Engine->getNbBindings();
 	cantainer->buffers.buffers = (void **)malloc(sizeof(float) * m_Engine->getNbBindings());
-	cudaMalloc(&input_data, input_size * getElementSize(m_Engine->getBindingDataType(inputIndex)));
-	cudaMalloc(&output_data, output_size * getElementSize(m_Engine->getBindingDataType(outputIndex)));
+	cudaMalloc(&input_data, input_size * sizeof(float));
+	cudaMalloc(&output_data, output_size * sizeof(float) *param->batch_size);
 	cantainer->buffers.buffers[0] = input_data;
 	cantainer->buffers.buffers[1] = output_data;
 
 	IExecutionContext* context = m_Engine->createExecutionContext();
 
-	cantainer->builder = builder;
-	cantainer->network = network;
-	cantainer->parser = parser;
+	builder->destroy();
+	network->destroy();
+	parser->destroy();
+	nvcaffeparser1::shutdownProtobufLibrary();
+
+	//cantainer->builder = builder;
+	//cantainer->parser = parser;
+	//cantainer->network = network;	
 	cantainer->m_Engine = m_Engine;
 	cantainer->context = context;
 	cudaStreamCreate(&cantainer->stream);
@@ -143,32 +163,40 @@ int syshen_TesnroRTBuild(frcHandle *handle_t, buildparam *param) {
 	return 0;
 }
 
-int syshen_TesnroRTInference(frcHandle handle_t, buildparam *param, cv::Mat &img, Iresult &result) {
+int syshen_TesnroRTInference(frcHandle handle_t, buildparam *param, std::vector<cv::Mat> &imgs,
+	std::vector<Iresult> &results) {
 
 	syshenRTCaffeCantainer *cantainer = (syshenRTCaffeCantainer *)handle_t;
-	cv::Mat InferenceImg;
-	std::vector<cv::Mat> splitchannles;
+	//cv::Mat InferenceImg;
+	//std::vector<cv::Mat> splitchannles;
+	std::vector<cv::Mat> resizeImgs;
 	int inputIndex = cantainer->m_Engine->getBindingIndex(param->inputTensorNames[0].c_str());
-	Dims dimsIn = cantainer->m_Engine->getBindingDimensions(inputIndex);
-	cv::resize(img, InferenceImg, cv::Size(dimsIn.d[2], dimsIn.d[1]));
-	int imgfs = dimsIn.d[0] * dimsIn.d[1] * dimsIn.d[2];
-	float *imgData = (float *)malloc(sizeof(float) * imgfs);
-	int shift_data = imgfs * getElementSize(
-		cantainer->m_Engine->getBindingDataType(inputIndex));
-	processImg(InferenceImg, dimsIn.d[0], imgData);
+	//Dims dimsIn = cantainer->m_Engine->getBindingDimensions(inputIndex);
+	for (size_t imgIndex = 0; imgIndex < imgs.size(); imgIndex++) {
+		cv::Mat subResizeImg;
+		cv::resize(imgs[imgIndex], subResizeImg, cv::Size(param->width, param->height));
+		resizeImgs.push_back(subResizeImg);
+	}
+
+	int shift_data = param->batch_size * param->channels * param->height * param->width * sizeof(float);
+	float *imgData = (float *)malloc(shift_data);
+	//int shift_data = imgfs * sizeof(float);
+	processImg(resizeImgs, param->channels, imgData);
 	cudaError stat = cudaMemcpyAsync(cantainer->buffers.buffers[inputIndex], imgData, shift_data,
 		cudaMemcpyHostToDevice, cantainer->stream);
-	std::cout << stat << std::endl;
-	cantainer->context->execute(cantainer->batch_size, &cantainer->buffers.buffers[0]);
+	//std::cout << stat << std::endl;
+	cantainer->context->execute(param->batch_size, &cantainer->buffers.buffers[0]);
 	int outputputIndex = cantainer->m_Engine->getBindingIndex(param->outputTensorNames[0].c_str());
 	Dims dimsOut = cantainer->m_Engine->getBindingDimensions(outputputIndex);
 	int outSize = std::accumulate(dimsOut.d, dimsOut.d + dimsOut.nbDims, 1, std::multiplies<int64_t>());
-	int typeSize = getElementSize(cantainer->m_Engine->getBindingDataType(outputputIndex));
-	float *output = (float *)malloc(outSize * typeSize);
-	cudaMemcpyAsync(output, cantainer->buffers.buffers[1], cantainer->batch_size * outSize * sizeof(float),
+	float *output = (float *)malloc(param->batch_size * outSize * sizeof(float));
+	cudaMemcpyAsync(output, cantainer->buffers.buffers[1], param->batch_size * outSize * sizeof(float),
 		cudaMemcpyDeviceToHost, cantainer->stream);
-	for (size_t i = 0; i < dimsOut.d[0] * 2; i++) {
-		std::cout << output[i] << std::endl;
+	for (size_t i = 0; i < param->batch_size; i++) {
+		for (size_t sub = 0; sub < outSize; sub++) {
+			std::cout << output[i * outSize + sub] << " ";
+		}
+		std::cout << std::endl;
 	}
 	free(imgData);
 	return 0;
@@ -176,17 +204,17 @@ int syshen_TesnroRTInference(frcHandle handle_t, buildparam *param, cv::Mat &img
 
 int syshenTensorRTRelease(frcHandle handle_t) {
 	syshenRTCaffeCantainer *cantainer = (syshenRTCaffeCantainer *)handle_t;
-	nvinfer1::IBuilder * builder = cantainer->builder;
-	nvinfer1::INetworkDefinition *network = cantainer->network;
-	nvcaffeparser1::ICaffeParser *parser = cantainer->parser;
+	//nvinfer1::IBuilder * builder = cantainer->builder;
+	//nvcaffeparser1::ICaffeParser *parser = cantainer->parser;
+	//nvinfer1::INetworkDefinition *network = cantainer->network;	
 	nvinfer1::ICudaEngine * m_Engine = cantainer->m_Engine;
 	IExecutionContext* context = cantainer->context;
-	network->destroy();
+	//network->destroy();
 	context->destroy();
 	m_Engine->destroy();
-	builder->destroy();
-	parser->destroy();
-	nvcaffeparser1::shutdownProtobufLibrary();
+	//builder->destroy();
+	//parser->destroy();
+	//nvcaffeparser1::shutdownProtobufLibrary();
 	cudaStreamDestroy(cantainer->stream);
 	for (size_t i = 0; i < cantainer->buffers.buffer_size; i++) {
 		cudaFree(cantainer->buffers.buffers[i]);

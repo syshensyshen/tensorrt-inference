@@ -11,7 +11,10 @@ int main(int argc, char **argv) {
 	std::string modelstr = "../../../models/test.caffemodel";
 	frcHandle handle_t;
 	buildparam param;
-	param.batch_size = 1;
+	param.batch_size = 4;
+	param.channels = 3;
+	param.height = 192;
+	param.width = 240;
 	param.protostr = protostr;
 	param.modelstr = modelstr;
 	param.dlaCoreSize = -1;
@@ -19,8 +22,15 @@ int main(int argc, char **argv) {
 	param.outputTensorNames.emplace_back("prob");
 	syshen_TesnroRTBuild(&handle_t, &param);
 
-	cv::Mat img = cv::imread("test.jpg");
-	Iresult result;
-	syshen_TesnroRTInference(handle_t, &param, img, result);
+	cv::Mat img = cv::imread("./img/5.jpg");
+	std::vector<cv::Mat> imgs;
+	imgs.push_back(img.clone());
+	imgs.push_back(img.clone());
+	imgs.push_back(img.clone());
+	imgs.push_back(img.clone());
+	std::vector<Iresult> results;
+	syshen_TesnroRTInference(handle_t, &param, imgs, results);
+	syshenTensorRTRelease(handle_t);
+
 	return 0;
 }
